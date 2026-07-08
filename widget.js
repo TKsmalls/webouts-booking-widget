@@ -103,13 +103,39 @@
         '</div>';
       var btn = document.createElement('button');
       btn.type = 'button';
+      btn.id = 'wo-recheck-btn';
       btn.className = 'wo-confirm-btn wo-pickother-btn';
       btn.textContent = 'Check again';
       btn.style.marginTop = '18px';
-      btn.addEventListener('click', function () { pollCalendlyLock(); });
+      btn.addEventListener('click', manualRecheck);
       el.querySelector('.wo-slots-msg').appendChild(btn);
+      var st = document.createElement('p');
+      st.id = 'wo-recheck-status';
+      st.className = 'hidden';
+      st.setAttribute('role', 'status');
+      st.setAttribute('aria-live', 'polite');
+      st.style.cssText = 'text-align:center;margin-top:12px;color:#07378C;font-weight:600;';
+      el.querySelector('.wo-slots-msg').appendChild(st);
       var stage = booking.querySelector('.wo-stage') || booking;
       stage.appendChild(el);
+    }
+
+    // Manual "Check again" click: give visible feedback on every press. A
+    // still-down result otherwise re-shows an identical screen, which reads as
+    // a dead button.
+    function manualRecheck() {
+      var btn = document.getElementById('wo-recheck-btn');
+      var st = document.getElementById('wo-recheck-status');
+      if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
+      if (st) { st.classList.add('hidden'); }
+      pollCalendlyLock().then(function (locked) {
+        if (btn) { btn.disabled = false; btn.textContent = 'Check again'; }
+        if (locked && st) {
+          st.textContent = 'Still paused — we just checked. Please check back shortly.';
+          st.classList.remove('hidden');
+        }
+        // If it recovered, pollCalendlyLock already switched to the booking form.
+      });
     }
 
     function pollCalendlyLock() {
