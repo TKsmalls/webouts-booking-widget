@@ -1584,14 +1584,18 @@
 
     document.getElementById('wo-continue').addEventListener('click', handleContinue);
 
-    // Inject the optional-guests field into the static info form (step 0), just
-    // above the Continue button — kept in JS so no per-page HTML edit is needed.
+    // Inject the optional-guests field into the static info form (step 0), kept
+    // in JS so no per-page HTML edit is needed. Place it directly above the
+    // Filming Language field so guests sit with the contact info (consistent
+    // spacing) and the language selector stays the last field, at the bottom.
     (function () {
-      var cont = document.getElementById('wo-continue');
-      if (!cont) return;
       guestsForm = buildGuestsSection();
-      var anchor = (cont.closest && cont.closest('.wo-actions')) || cont;
-      anchor.parentNode.insertBefore(guestsForm.el, anchor);
+      var lang = document.getElementById('wo-language-field');
+      if (lang && lang.parentNode) { lang.parentNode.insertBefore(guestsForm.el, lang); return; }
+      // Fallback for any page without the language-field id: above Continue.
+      var cont = document.getElementById('wo-continue');
+      var anchor = (cont && cont.closest && cont.closest('.wo-actions')) || cont;
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(guestsForm.el, anchor);
     })();
 
     // Pre-warm availability while the form is being filled in (and re-warm if
