@@ -480,7 +480,7 @@
 
       var label = document.createElement('div');
       label.className = 'wo-guests-label';
-      label.innerHTML = 'Add guests <span>(optional)</span>';
+      label.innerHTML = 'Add Guests <span>(Admin, Marketing Rep, etc.)</span>';
       wrap.appendChild(label);
 
       var rowsBox = document.createElement('div');
