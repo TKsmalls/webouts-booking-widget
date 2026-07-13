@@ -563,25 +563,35 @@
       scrollToWizard();
     }
 
-    function renderNoSlots(hostId, minDays) {
+    function renderNoSlots(hostId, minDays, fomo) {
       var host = document.getElementById(hostId);
       host.classList.remove('expanded');
       host.style.height = 'auto';
-      if (minDays) minDays = parseInt(minDays, 10) || 10;
-      var msg;
-      if (minDays) {
-        msg = 'Your script interview needs to be at least ' + minDays + ' days before your filming date, and we could not find an open slot that early. Our team will reach out shortly to get you scheduled.';
+      var inner;
+      if (fomo) {
+        // Fully-booked filming: high-demand FOMO that funnels the provider to
+        // ask their own marketing manager to open more filming times. No
+        // WebOuts contact here on purpose — the marketing-manager ask stays the
+        // single call to action so providers become advocates for more slots.
+        inner =
+          '<h3>These filled up fast</h3>' +
+          '<p>Providers have been signing up quickly and demand has been high — every filming slot is already claimed. Don’t want to be left behind? Reach out to your marketing manager and ask them to open more filming times so you can get on the schedule.</p>';
       } else {
-        msg = 'We could not find an open studio time. Our team will reach out shortly to get you scheduled.';
+        if (minDays) minDays = parseInt(minDays, 10) || 10;
+        var msg;
+        if (minDays) {
+          msg = 'Your script interview needs to be at least ' + minDays + ' days before your filming date, and we could not find an open slot that early. Our team will reach out shortly to get you scheduled.';
+        } else {
+          msg = 'We could not find an open studio time. Our team will reach out shortly to get you scheduled.';
+        }
+        inner =
+          '<h3>Let’s find a time together</h3>' +
+          '<p>' + msg + '</p>' +
+          '<p class="wo-slots-contact">Prefer to reach us now? Contact Cam Kubasta at ' +
+          '<a href="tel:+19202145227">(920) 214-5227</a> or ' +
+          '<a href="mailto:ckubasta@webouts.com">ckubasta@webouts.com</a>.</p>';
       }
-      host.innerHTML =
-        '<div class="wo-slots-msg">' +
-        '<h3>Let’s find a time together</h3>' +
-        '<p>' + msg + '</p>' +
-        '<p class="wo-slots-contact">Prefer to reach us now? Contact Cam Kubasta at ' +
-        '<a href="tel:+19202145227">(920) 214-5227</a> or ' +
-        '<a href="mailto:ckubasta@webouts.com">ckubasta@webouts.com</a>.</p>' +
-        '</div>';
+      host.innerHTML = '<div class="wo-slots-msg">' + inner + '</div>';
       applyFade(host);
     }
 
@@ -746,7 +756,7 @@
     }
 
     function renderFilmingPicker() {
-      if (!filmingState.slots.length) { renderNoSlots('wo-cal-1', null); return; }
+      if (!filmingState.slots.length) { renderNoSlots('wo-cal-1', null, true); return; }
       filmingState.months = buildFilmingMonths();
       if (filmingState.months.length <= 1) {
         // Everything falls in the current month: skip the grid, go straight
