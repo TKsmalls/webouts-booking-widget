@@ -1,0 +1,31 @@
+<!-- WebOuts Booking Widget — ONE-TIME paste into Bricks → Settings → Body (footer) scripts.
+
+     REPLACES this tag:
+       <script src="https://cdn.jsdelivr.net/gh/TKsmalls/webouts-booking-widget@latest/widget.js"></script>
+
+     Why: jsDelivr serves @latest with "cache-control: max-age=604800", so a browser that has
+     loaded the widget once keeps that copy for up to 7 DAYS. jsDelivr's edge updates instantly
+     on a version tag, but the browser never asks. Purging does not help — the stale copy is in
+     the browser, not the CDN. That means a newly created client page could be served an old
+     widget that knows nothing about it, and render an empty booking box.
+
+     This bootstrap asks GitHub for the current commit, then loads that exact commit-pinned file.
+     Commit-pinned URLs are immutable (cached forever, safely), and every push produces a NEW url,
+     so every browser picks up a deploy within seconds — no purge, no hard-refresh, no Bricks edit.
+
+     If GitHub is unreachable or rate-limited it falls back to @latest, i.e. exactly today's
+     behaviour. After this paste, this tag never needs changing again. -->
+<script>
+(function () {
+  var repo = 'TKsmalls/webouts-booking-widget', file = 'widget.js';
+  function inject(ref) {
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/gh/' + repo + '@' + ref + '/' + file;
+    document.head.appendChild(s);
+  }
+  fetch('https://api.github.com/repos/' + repo + '/commits/main', { headers: { Accept: 'application/vnd.github.sha' } })
+    .then(function (r) { return r.ok ? r.text() : Promise.reject(); })
+    .then(function (sha) { inject(/^[0-9a-f]{40}$/.test(sha.trim()) ? sha.trim() : 'latest'); })
+    .catch(function () { inject('latest'); });
+})();
+</script>
