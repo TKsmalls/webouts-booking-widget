@@ -47,23 +47,36 @@
     // service returns only event types that are switched ON, so toggling the
     // Spanish event in Calendly makes the language picker appear or disappear
     // here with no code change and no page edit. Any failure (unknown slug,
-    // ok:false, network) leaves the hidden-input values untouched.
+    // ok:false, network) leaves the hidden-input values untouched — and on a
+    // page that has no hidden inputs, locks the wizard (see “Wizard lock”).
     var pageSlug = (location.pathname || '').replace(/^\/+|\/+$/g, '').split('/').pop().toLowerCase();
+
+    function fetchConfig() {
+      if (!pageSlug) return Promise.resolve();
+      return fetch(WEBHOOK_CONFIG + '?slug=' + encodeURIComponent(pageSlug))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (d) {
+          if (!d || !d.ok) return;
+          CAL_1_URL = d.filming || CAL_1_URL;
+          CAL_2_URL = d.scripting || CAL_2_URL;
+          // Authoritative: '' means the bilingual event is off or absent.
+          CAL_1_BI_URL = d.bilingual || '';
+          applyLangVisibility();
+        })
+        .catch(function () { /* keep the hidden-input fallback */ });
+    }
+
+    // Both links are required to complete a booking, and every fallback path in
+    // this widget still needs a Calendly URL to hand off to. No links = nothing
+    // this page can do.
+    function bookingUsable() { return !!CAL_1_URL && !!CAL_2_URL; }
+
     var configSettled = false;
-    var configReady = (pageSlug
-      ? fetch(WEBHOOK_CONFIG + '?slug=' + encodeURIComponent(pageSlug))
-          .then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (d) {
-            if (!d || !d.ok) return;
-            CAL_1_URL = d.filming || CAL_1_URL;
-            CAL_2_URL = d.scripting || CAL_2_URL;
-            // Authoritative: '' means the bilingual event is off or absent.
-            CAL_1_BI_URL = d.bilingual || '';
-            applyLangVisibility();
-          })
-          .catch(function () { /* keep the hidden-input fallback */ })
-      : Promise.resolve()
-    ).then(function () { configSettled = true; });
+    var configReady = fetchConfig().then(function () {
+      configSettled = true;
+      configLocked = !bookingUsable();
+      applyLock();
+    });
 
     // Drop an animated loading bar into each splash so the wait for the next
     // screen (while we fetch available times) never looks frozen.
@@ -176,14 +189,40 @@
     }
     updateProgress('wo-step-0');
 
-    // ── Calendly outage lock ──────────────────────────────────────
-    // If Calendly's own core systems are degraded (especially Notifications,
-    // which sends the calendar invite), lock the ENTIRE wizard up front so a
-    // provider can't complete every step and only discover at “Confirm” that
-    // it failed. The create-booking proxy enforces the same check server-side.
+    // ── Wizard lock ───────────────────────────────────────────────
+    // Two different breakages leave this page unable to produce a real booking,
+    // and both look identical to a provider, so both show the same branded
+    // pause screen rather than a dead form:
+    //
+    //   1. Calendly's own core systems are degraded — especially Notifications,
+    //      which sends the calendar invite. Lock up front so a provider can't
+    //      complete every step and only discover at “Confirm” that it failed.
+    //      The create-booking proxy enforces the same check server-side.
+    //
+    //   2. We never got this page's Calendly links. Legacy pages fall back to
+    //      their hidden inputs, so this can only bite a page that has none —
+    //      i.e. every page created from here on, whose whole point is carrying
+    //      no per-page config. Without links there is no iframe to fall back to
+    //      and every other degrade path in this file dead-ends, so an ungated
+    //      page would render an empty box.
+    //
+    // Both re-check on the same timer, so the page unlocks by itself.
     var CAL_STATUS_URL = 'https://calendlystatus.com/api/v2/summary.json';
     var CAL_CORE = ['Calendly API', 'calendly.com', 'Notifications', 'Webhooks'];
     var calLocked = false;
+    var configLocked = false;
+
+    function isLocked() { return calLocked || configLocked; }
+
+    function applyLock() {
+      if (isLocked()) {
+        buildLockScreen();
+        show('wo-locked');
+        return;
+      }
+      var lk = document.getElementById('wo-locked');
+      if (lk && !lk.classList.contains('hidden')) show('wo-step-0');
+    }
 
     function buildLockScreen() {
       if (document.getElementById('wo-locked')) return;
@@ -225,17 +264,17 @@
       var st = document.getElementById('wo-recheck-status');
       if (btn) { btn.disabled = true; btn.textContent = 'Checking…'; }
       if (st) { st.classList.add('hidden'); }
-      pollCalendlyLock().then(function (locked) {
+      pollLock().then(function (locked) {
         if (btn) { btn.disabled = false; btn.textContent = 'Check again'; }
         if (locked && st) {
           st.textContent = 'Still paused — we just checked. Please check back shortly.';
           st.classList.remove('hidden');
         }
-        // If it recovered, pollCalendlyLock already switched to the booking form.
+        // If it recovered, pollLock already switched to the booking form.
       });
     }
 
-    function pollCalendlyLock() {
+    function fetchCalendlyStatus() {
       return fetch(CAL_STATUS_URL, { cache: 'no-store' })
         .then(function (r) { return r.json(); })
         .then(function (d) {
@@ -244,18 +283,24 @@
             return CAL_CORE.indexOf(c.name) !== -1 && c.status !== 'operational';
           });
         })
-        .catch(function () { return false; })   // fail open — never lock on a status-page hiccup
-        .then(function (locked) {
-          calLocked = locked;
-          if (locked) {
-            buildLockScreen();
-            show('wo-locked');
-          } else {
-            var lk = document.getElementById('wo-locked');
-            if (lk && !lk.classList.contains('hidden')) show('wo-step-0');
-          }
-          return locked;
-        });
+        .catch(function () { return false; });   // fail open — never lock on a status-page hiccup
+    }
+
+    function pollLock() {
+      return Promise.all([
+        fetchCalendlyStatus(),
+        // Retry the config service only while it's the thing that's broken, so
+        // a healthy page doesn't re-poll n8n every minute for no reason.
+        configLocked ? fetchConfig() : Promise.resolve()
+      ]).then(function (r) {
+        calLocked = r[0];
+        // Guard on configSettled: the first poll fires before the config lands,
+        // and an unresolved page has no links yet — evaluating here would flash
+        // a false lock on every page load.
+        if (configSettled) configLocked = !bookingUsable();
+        applyLock();
+        return isLocked();
+      });
     }
 
     // Restart the fill animation each time a splash is shown, so the bar
@@ -1081,7 +1126,10 @@
     // Fallback: the original Calendly filming widget (used only if the proxy
     // is unreachable or errors).
     function initCal1() {
-      if (cal1Loaded || !window.Calendly) return;
+      if (cal1Loaded) return;
+      // Calendly's script never loaded, so there is no iframe to fall back to.
+      // Say so and offer a retry rather than returning to an empty box.
+      if (!window.Calendly) { renderFetchFailed('wo-cal-1', retryFilmingLoad); return; }
       var host = document.getElementById('wo-cal-1');
       host.innerHTML = '';
       var inner = document.createElement('div');
@@ -1613,7 +1661,15 @@
 
     // Fallback: the original, unconstrained script-interview calendar.
     function initCal2() {
-      if (cal2Loaded || !window.Calendly) return;
+      if (cal2Loaded) return;
+      if (!window.Calendly) {
+        renderFetchFailed('wo-cal-2', function () {
+          show('wo-step-2-splash');
+          restartLoadbar('wo-step-2-splash');
+          loadScriptingStep(lastFilmingEventUri);
+        });
+        return;
+      }
       var host = document.getElementById('wo-cal-2');
       host.innerHTML = '';
       var inner = document.createElement('div');
@@ -1635,7 +1691,7 @@
     }
 
     function handleContinue() {
-      if (calLocked) { pollCalendlyLock(); return; }
+      if (isLocked()) { pollLock(); return; }
       // The config resolves in ~2s while the form is still being filled in, so
       // this is effectively never seen. It exists because a page carrying no
       // hidden-input fallback must not proceed without its Calendly links.
@@ -1715,10 +1771,10 @@
     // no hidden inputs has a URL to warm at all.
     configReady.then(warmFilming);
 
-    // Lock the whole wizard immediately if Calendly is down, then keep
-    // checking so it unlocks on its own the moment service returns.
-    pollCalendlyLock();
-    setInterval(pollCalendlyLock, 60000);
+    // Lock the whole wizard immediately if anything the booking depends on is
+    // down, then keep checking so it unlocks on its own the moment it returns.
+    pollLock();
+    setInterval(pollLock, 60000);
 
     window.addEventListener('message', function (e) {
       if (!e.data || typeof e.data !== 'object') return;

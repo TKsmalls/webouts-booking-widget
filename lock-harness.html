@@ -1,0 +1,93 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>lock gate harness</title>
+<!-- Simulates the wizard DOM + stubs every network call, so each failure
+     combination can be asserted without touching the live site.
+     Query flags:  legacy=1 (page has hidden inputs)  config=ok|fail|notok
+                   calstatus=up|down                  calendly=1 (script loaded) -->
+<body>
+<script>
+  var Q = new URLSearchParams(location.search);
+  window.__calls = { config: 0, status: 0 };
+  if (Q.get('calendly') === '1') window.Calendly = { initInlineWidget: function () {} };
+
+  window.fetch = function (url, opts) {
+    url = String(url);
+    function json(o) { return Promise.resolve({ ok: true, json: function () { return Promise.resolve(o); }, text: function () { return Promise.resolve(JSON.stringify(o)); } }); }
+
+    if (url.indexOf('booking-config') !== -1) {
+      window.__calls.config++;
+      var mode = Q.get('config');
+      // ?config=recover -> fail the first call, succeed on the retry
+      if (mode === 'recover') mode = window.__calls.config === 1 ? 'fail' : 'ok';
+      if (mode === 'fail') return Promise.reject(new Error('n8n unreachable'));
+      if (mode === 'notok') return json({ ok: false, reason: 'unknown_slug' });
+      return json({ ok: true, slug: 'orlando', brand: 'OH',
+        filming: 'https://calendly.com/x/filming-cfg',
+        bilingual: 'https://calendly.com/x/filming-bi-cfg',
+        scripting: 'https://calendly.com/x/scripting-cfg' });
+    }
+    if (url.indexOf('calendlystatus.com') !== -1) {
+      window.__calls.status++;
+      var down = Q.get('calstatus') === 'down';
+      return json({ components: [
+        { name: 'Calendly API', status: 'operational' },
+        { name: 'calendly.com', status: 'operational' },
+        { name: 'Notifications', status: down ? 'degraded_performance' : 'operational' },
+        { name: 'Webhooks', status: 'operational' }
+      ] });
+    }
+    // availability / booking proxies — never reached by these assertions
+    return json({ ok: false });
+  };
+
+  // Probe: what a provider would actually be looking at.
+  window.__state = function () {
+    function vis(id) { var e = document.getElementById(id); return !!e && !e.classList.contains('hidden'); }
+    var lock = document.getElementById('wo-locked');
+    return {
+      lockVisible: vis('wo-locked'),
+      formVisible: vis('wo-step-0'),
+      lockHeading: lock ? (lock.querySelector('h3') || {}).textContent : null,
+      configCalls: window.__calls.config
+    };
+  };
+</script>
+
+<div id="wo-booking" class="wo-booking">
+  <div class="wo-banner">banner</div>
+  <div class="wo-stage">
+    <div class="wo-step" id="wo-step-0">
+      <div class="wo-step-header">Book</div>
+      <input type="text" id="wo_first_name"><input type="text" id="wo_last_name">
+      <input type="email" id="wo_email">
+      <select id="wo_country"><option value="+1">+1</option></select>
+      <input type="tel" id="wo_phone">
+      <div class="wo-field" id="wo-language-field">
+        <div class="wo-language-row">
+          <input type="radio" name="wo_language" value="english" id="l1" checked><label class="wo-lang-card" for="l1">EN</label>
+          <input type="radio" name="wo_language" value="bilingual" id="l2"><label class="wo-lang-card" for="l2">EN+ES</label>
+        </div>
+      </div>
+      <div class="wo-error" id="wo-error"></div>
+      <div class="wo-actions"><button class="wo-btn" id="wo-continue">Continue</button></div>
+    </div>
+    <div class="wo-step hidden wo-splash" id="wo-step-1-splash"><h3>Step 1</h3></div>
+    <div class="wo-step hidden" id="wo-step-1"><div class="wo-cal-container" id="wo-cal-1"></div></div>
+    <div class="wo-step hidden wo-splash" id="wo-step-2-splash"><h3>Step 2</h3></div>
+    <div class="wo-step hidden" id="wo-step-2"><div class="wo-cal-container" id="wo-cal-2"></div></div>
+    <div class="wo-step hidden" id="wo-all-done">done</div>
+  </div>
+</div>
+
+<script>
+  // Legacy pages carry hardcoded links; auto-created pages carry none.
+  if (Q.get('legacy') === '1') {
+    document.body.insertAdjacentHTML('beforeend',
+      '<input type="hidden" id="wo-cal-1-url" value="https://calendly.com/x/filming-hidden">' +
+      '<input type="hidden" id="wo-cal-1-bilingual-url" value="https://calendly.com/x/filming-bi-hidden">' +
+      '<input type="hidden" id="wo-cal-2-url" value="https://calendly.com/x/scripting-hidden">');
+  }
+</script>
+<script src="./widget.js"></script>
+</body>
