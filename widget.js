@@ -15,6 +15,8 @@
     var booking = document.getElementById('wo-booking');
     if (!booking) return;
 
+    // Legacy per-page hidden inputs. These remain the fallback: if the config
+    // service can't answer, the page behaves exactly as it did before.
     var cal1El = document.getElementById('wo-cal-1-url');
     var cal1BiEl = document.getElementById('wo-cal-1-bilingual-url');
     var cal2El = document.getElementById('wo-cal-2-url');
@@ -30,9 +32,38 @@
     var WEBHOOK_FILMING = 'https://webouts.app.n8n.cloud/webhook/wo-filming-availability';
     var WEBHOOK_SCRIPTING = 'https://webouts.app.n8n.cloud/webhook/wo-scripting-availability';
     var WEBHOOK_BOOKING = 'https://webouts.app.n8n.cloud/webhook/wo-create-booking';
+    var WEBHOOK_CONFIG = 'https://webouts.app.n8n.cloud/webhook/booking-config';
 
     var langField = document.getElementById('wo-language-field');
-    if (!CAL_1_BI_URL && langField) langField.style.display = 'none';
+    // Bilingual is offered only when the client's English & Spanish filming
+    // event is ACTIVE in Calendly, so this re-runs whenever CAL_1_BI_URL changes.
+    function applyLangVisibility() {
+      if (langField) langField.style.display = CAL_1_BI_URL ? '' : 'none';
+    }
+    applyLangVisibility();
+
+    // Resolve this page's Calendly links from the config service, keyed on the
+    // page slug (/orlando -> "orlando"). Calendly is the source of truth: the
+    // service returns only event types that are switched ON, so toggling the
+    // Spanish event in Calendly makes the language picker appear or disappear
+    // here with no code change and no page edit. Any failure (unknown slug,
+    // ok:false, network) leaves the hidden-input values untouched.
+    var pageSlug = (location.pathname || '').replace(/^\/+|\/+$/g, '').split('/').pop().toLowerCase();
+    var configSettled = false;
+    var configReady = (pageSlug
+      ? fetch(WEBHOOK_CONFIG + '?slug=' + encodeURIComponent(pageSlug))
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (d) {
+            if (!d || !d.ok) return;
+            CAL_1_URL = d.filming || CAL_1_URL;
+            CAL_2_URL = d.scripting || CAL_2_URL;
+            // Authoritative: '' means the bilingual event is off or absent.
+            CAL_1_BI_URL = d.bilingual || '';
+            applyLangVisibility();
+          })
+          .catch(function () { /* keep the hidden-input fallback */ })
+      : Promise.resolve()
+    ).then(function () { configSettled = true; });
 
     // Drop an animated loading bar into each splash so the wait for the next
     // screen (while we fetch available times) never looks frozen.
@@ -1605,6 +1636,18 @@
 
     function handleContinue() {
       if (calLocked) { pollCalendlyLock(); return; }
+      // The config resolves in ~2s while the form is still being filled in, so
+      // this is effectively never seen. It exists because a page carrying no
+      // hidden-input fallback must not proceed without its Calendly links.
+      if (!configSettled) {
+        var waitErr = document.getElementById('wo-error');
+        if (waitErr) waitErr.textContent = 'One moment…';
+        configReady.then(function () {
+          if (waitErr) waitErr.textContent = '';
+          handleContinue();
+        });
+        return;
+      }
       var first = document.getElementById('wo_first_name');
       var last = document.getElementById('wo_last_name');
       var email = document.getElementById('wo_email');
@@ -1667,8 +1710,10 @@
     booking.addEventListener('focusin', warmFilming);
     booking.addEventListener('change', warmFilming);
     // Start the Calendly sweep the moment the page loads, so availability is
-    // ready (or nearly so) by the time the provider clicks Continue.
-    warmFilming();
+    // ready (or nearly so) by the time the provider clicks Continue. Waits on
+    // the resolved config so it warms the right calendar — and so a page with
+    // no hidden inputs has a URL to warm at all.
+    configReady.then(warmFilming);
 
     // Lock the whole wizard immediately if Calendly is down, then keep
     // checking so it unlocks on its own the moment service returns.
