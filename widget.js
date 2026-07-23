@@ -1,3 +1,4 @@
+// WebOuts booking widget (managed via SMS Ops Concierge dry-run).
 /* WebOuts Booking Widget — self-contained (injects CSS + runs widget).
    Source of truth: GitHub repo, served via jsDelivr. Per-page Calendly URLs
    still come from the hidden #wo-cal-*-url inputs in each page's HTML. */
